@@ -149,7 +149,7 @@ def plot_log_lines(list_to_plot, list_name, axis_label, folder, title, x_axis = 
 
     plt.xlabel(axis_label[0], fontsize=20)
     plt.ylabel(axis_label[1], fontsize=20)
-    plt.legend(fontsize=7, loc='upper right', bbox_to_anchor=(1.0, 1.0))
+    plt.legend(fontsize=7, loc='lower left', bbox_to_anchor=(0.0, 0.0))
     if show:
         plt.show()
     else:
