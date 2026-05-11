@@ -4,3 +4,5 @@ scipy
 tqdm
 jupyter
 ipykernel
+gymnasium
+torch
