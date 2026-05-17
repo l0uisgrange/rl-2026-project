@@ -9,5 +9,5 @@ Repository for the EE-556 Reinforcement learning course at EPFL. The evaluation 
 | [Notebook 3](https://github.com/l0uisgrange/rl-2026-project/blob/main/notebook3_2026/Assignment.ipynb)  |                | 
 | [Project](https://github.com/l0uisgrange/rl-2026-project/blob/main/imitation_learning/README.md)        |                |
 
-[^1]: 2: Need to mention when epsilon goes to 0
-[^2]: Q4.1 The λ-gradient should be ∇_λ L = r + γP V^k − E V^k. Q5: The Bellman residual = 0 argument actually yields L(λ^k, V^πλk) = (1-γ)⟨μ, V^πλk⟩ directly; the subsequent converting ⟨λ^k, r⟩ to (1-γ)⟨μ, V^πλk⟩ is invalid because λ^k is not a valid occupancy measure
+[^1]: Comment received — Q2: Need to mention when epsilon goes to 0
+[^2]: Comment received — Q4.1 The λ-gradient should be ∇_λ L = r + γP V^k − E V^k. Q5: The Bellman residual = 0 argument actually yields L(λ^k, V^πλk) = (1-γ)⟨μ, V^πλk⟩ directly; the subsequent converting ⟨λ^k, r⟩ to (1-γ)⟨μ, V^πλk⟩ is invalid because λ^k is not a valid occupancy measure

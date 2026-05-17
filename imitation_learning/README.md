@@ -103,14 +103,14 @@ To test the pipeline with synthetic data: `python evaluation.py --demo`
 
 ## Environment Reference
 
-| Environment  | Obs dim | Action dim | Action type        | Expert target |
-|:------------|:--------|:-----------|:-------------------|:-------------|
-| CartPole-v1 | 4       | 2          | Discrete           | 500          |
-| Pendulum-v1 | 3       | 1          | Continuous [-2, 2] | ≈ -200       |
+| Environment | Obs dim | Action dim | Action type        | Expert target |
+|:------------|:--------|:-----------|:-------------------|:--------------|
+| CartPole-v1 | 4       | 2          | Discrete           | 500           |
+| Pendulum-v1 | 3       | 1          | Continuous [-2, 2] | ≈ -200        |
 
 ## Hyperparameters
 
-| Parameter    | CartPole | Pendulum | Notes                              |
+| Parameter   | CartPole | Pendulum | Notes                              |
 |:------------|:---------|:---------|:-----------------------------------|
 | hidden_dim  | 128      | 256      | MLP hidden layer size              |
 | lr          | 3e-4     | 3e-4     | Adam learning rate                 |
