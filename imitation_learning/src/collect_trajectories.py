@@ -30,7 +30,6 @@ Output format (.npz):
 import argparse
 import os
 import numpy as np
-import torch
 import gymnasium as gym
 from sac_agent import SACAgent
 

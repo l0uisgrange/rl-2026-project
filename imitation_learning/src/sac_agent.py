@@ -564,8 +564,8 @@ def train_sac(
 if __name__ == "__main__":
     import os
     
-    os.makedirs("models", exist_ok=True)
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs("../models", exist_ok=True)
+    os.makedirs("../logs", exist_ok=True)
 
     # --- Train CartPole expert ---
     print("=" * 60)
@@ -576,7 +576,7 @@ if __name__ == "__main__":
         max_episodes=300,
         eval_interval=10,
         seed=42,
-        save_path="models/sac_cartpole_expert.pt",
+        save_path="../models/sac_cartpole_expert.pt",
         hidden_dim=128,       # smaller net for this simple env
         lr=3e-4,
         batch_size=128,
@@ -592,7 +592,7 @@ if __name__ == "__main__":
         max_episodes=200,
         eval_interval=10,
         seed=42,
-        save_path="models/sac_pendulum_expert.pt",
+        save_path="../models/sac_pendulum_expert.pt",
         hidden_dim=256,
         lr=3e-4,
         batch_size=256,
@@ -601,7 +601,7 @@ if __name__ == "__main__":
 
     # Save logs for later plotting
     np.savez(
-        "logs/training_logs.npz",
+        "../logs/training_logs.npz",
         cartpole_episodes=cartpole_log["episode"],
         cartpole_train_rewards=cartpole_log["train_reward"],
         cartpole_eval_rewards=cartpole_log["eval_reward"],
