@@ -16,7 +16,7 @@ import torch
 import torch.optim as optim
 import gymnasium as gym
 
-from sac_agent import QNetwork, GaussianPolicy, DiscretePolicy, ReplayBuffer
+from src.sac_agent import QNetwork, GaussianPolicy, DiscretePolicy, ReplayBuffer
 
 
 class ExpertDataset:
@@ -230,13 +230,20 @@ class IQLearnAgent:
         return reward_term + value_term + chi2_term
 
 
-def save_log_csv(log, out_path):
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+def save_log_csv(log, out_path, seed, K):
+    """Save training log as CSV.
+
+    First 4 columns (seed, step, eval_reward, K) match the format expected
+    by evaluation.py's load_logs.  Extra columns (critic_loss, actor_loss)
+    are preserved for downstream analysis and visualisation.
+    """
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["step", "eval_reward", "critic_loss", "actor_loss"])
-        for s, r, c, a in zip(log["step"], log["eval_reward"], log["critic_loss"], log["actor_loss"]):
-            writer.writerow([s, r, c, a])
+        writer.writerow(["seed", "step", "eval_reward", "K", "critic_loss", "actor_loss"])
+        for s, r, c, a in zip(log["step"], log["eval_reward"],
+                              log["critic_loss"], log["actor_loss"]):
+            writer.writerow([seed, s, r, K, c, a])
 
 
 def evaluate(agent, eval_env, n_episodes=5):
