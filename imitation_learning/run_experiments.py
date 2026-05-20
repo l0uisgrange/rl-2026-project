@@ -22,8 +22,8 @@ ENV_CONFIGS = {
     "CartPole-v1": {"total_steps": 20_000, "hidden_dim": 128, "batch_size": 128,
                      "eval_interval": 1000, "lr": 3e-4, "chi2_coef": 0.5,
                      "alpha": 0.2, "auto_alpha": False},
-    "Pendulum-v1": {"total_steps": 30_000, "hidden_dim": 256, "batch_size": 256,
-                     "eval_interval": 1000, "lr": 1e-4, "chi2_coef": 0.5,
+    "Pendulum-v1": {"total_steps": 50_000, "hidden_dim": 256, "batch_size": 256,
+                     "eval_interval": 2000, "lr": 1e-4, "chi2_coef": 0.5,
                      "alpha": 0.2, "auto_alpha": True},
 }
 
@@ -57,7 +57,7 @@ def run_one(env_name, K, seed, log_dir="logs", verbose=False):
     max_reward = max(log["eval_reward"]) if log["eval_reward"] else float("nan")
 
     out_path = f"{log_dir}/iqlearn_{env_name}_K{K}_seed{seed}.csv"
-    save_log_csv(log, out_path)
+    save_log_csv(log, out_path, seed=seed, K=K)
 
     print(f"  done in {elapsed/60:.1f} min | final={final_reward:.1f} | max={max_reward:.1f} | -> {out_path}")
     return elapsed, final_reward, max_reward

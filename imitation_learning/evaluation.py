@@ -77,33 +77,68 @@ class TrainingLogger:
 def load_logs(logdir, algorithm, env_name, K=None):
     """
     Load all log CSVs for a given algorithm and environment.
-    
+
+    Supports two CSV layouts:
+      - Filename-encoded: file ``algo_env_K{k}_seed{s}.csv`` with columns
+        ``step,eval_reward,...``  (seed & K parsed from the filename).
+      - Column-encoded: columns ``seed,step,eval_reward,K,...``
+
+    The format is auto-detected from the header of each file.
+
     Returns:
         data: dict mapping K -> {seed -> [(step, reward), ...]}
     """
+    import re
     data = {}
     pattern = f"{algorithm}_{env_name}"
-    
+
     for f in sorted(Path(logdir).glob(f"{pattern}*.csv")):
+        # --- try to extract seed & K from the filename ----------------
+        match = re.search(r'_K(\d+)_seed(\d+)', f.stem)
+        fname_k = int(match.group(1)) if match else None
+        fname_seed = int(match.group(2)) if match else None
+
         with open(f) as fh:
-            lines = fh.readlines()[1:]  # skip header
-        
+            header = fh.readline().strip().split(",")
+            lines = fh.readlines()
+
+        # --- detect format from the header ----------------------------
+        if header[0] == "seed":
+            # Column-encoded: seed,step,eval_reward,K[,...]
+            col_seed, col_step, col_reward, col_k = 0, 1, 2, 3
+            use_filename = False
+        else:
+            # Filename-encoded: step,eval_reward[,...]
+            col_step = header.index("step")
+            col_reward = header.index("eval_reward")
+            use_filename = True
+
         for line in lines:
             parts = line.strip().split(",")
-            seed = int(parts[0])
-            step = int(parts[1])
-            reward = float(parts[2])
-            k = int(parts[3])
-            
+            if not parts or not parts[0]:
+                continue
+
+            step = int(parts[col_step])
+            reward = float(parts[col_reward])
+
+            if use_filename:
+                seed = fname_seed
+                k = fname_k
+            else:
+                seed = int(parts[col_seed])
+                k = int(parts[col_k])
+
+            if seed is None or k is None:
+                continue
             if K is not None and k != K:
                 continue
-            
+
             if k not in data:
                 data[k] = {}
             if seed not in data[k]:
                 data[k][seed] = []
             data[k][seed].append((step, reward))
-    
+
     return data
 
 
@@ -252,6 +287,89 @@ def plot_learning_curves(logdir, env_name, algorithms, K,
     return fig
 
 
+def plot_learning_curves_by_K(logdir, env_name, algorithm,
+                              K_values=None, smooth_window=5,
+                              save_path=None):
+    """
+    Plot learning curves for a single algorithm with all K values overlaid.
+
+    Each line represents a different expert dataset size K, averaged over
+    seeds with a ±1 std shaded band.  This directly shows the effect of
+    dataset size on convergence speed and final performance.
+
+    Args:
+        logdir: Directory containing CSV logs
+        env_name: Environment name
+        algorithm: Single algorithm name (e.g. "iqlearn")
+        K_values: List of K values to include (None = all found)
+        smooth_window: Moving average window for smoothing
+        save_path: Where to save the figure
+    """
+    data = load_logs(logdir, algorithm, env_name)
+
+    if not data:
+        print(f"  No data found for {algorithm} on {env_name}")
+        return None
+
+    if K_values is None:
+        K_values = sorted(data.keys())
+    else:
+        K_values = sorted(k for k in K_values if k in data)
+
+    if not K_values:
+        return None
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+    cmap = plt.cm.viridis
+    colors = [cmap(i / max(len(K_values) - 1, 1)) for i in range(len(K_values))]
+
+    for idx, k in enumerate(K_values):
+        seeds = data[k]
+        # Common step grid across seeds for this K
+        all_steps = sorted({step for entries in seeds.values()
+                            for step, _ in entries})
+        if not all_steps:
+            continue
+
+        seed_curves = []
+        for seed, entries in seeds.items():
+            steps = [e[0] for e in entries]
+            rewards = [e[1] for e in entries]
+            seed_curves.append(np.interp(all_steps, steps, rewards))
+
+        seed_curves = np.array(seed_curves)
+        mean_curve = np.mean(seed_curves, axis=0)
+        std_curve = np.std(seed_curves, axis=0)
+
+        if smooth_window > 1 and len(mean_curve) >= smooth_window:
+            kernel = np.ones(smooth_window) / smooth_window
+            mean_curve = np.convolve(mean_curve, kernel, mode="valid")
+            std_curve = np.convolve(std_curve, kernel, mode="valid")
+            all_steps = all_steps[:len(mean_curve)]
+
+        n_seeds = len(seeds)
+        label = f"K={k} ({n_seeds} seed{'s' if n_seeds != 1 else ''})"
+        color = colors[idx]
+        ax.plot(all_steps, mean_curve, label=label, color=color, linewidth=2)
+        ax.fill_between(all_steps, mean_curve - std_curve,
+                        mean_curve + std_curve, alpha=0.15, color=color)
+
+    algo_display = algorithm.upper().replace("_", "+")
+    ax.set_xlabel("Training Steps", fontsize=12)
+    ax.set_ylabel("Average Eval Reward", fontsize=12)
+    ax.set_title(f"{algo_display} Training Progress — {env_name}", fontsize=14)
+    ax.legend(fontsize=10, title="Expert trajectories")
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"  Saved: {save_path}")
+
+    plt.close(fig)
+    return fig
+
+
 # ============================================================
 # Generate all plots
 # ============================================================
@@ -263,17 +381,18 @@ def generate_all_plots(logdir, outdir="plots"):
     envs = ["CartPole-v1", "Pendulum-v1"]
     
     for env in envs:
-        # Plot 1: Sample efficiency
+        # Plot 1: Sample efficiency (final reward vs K)
         plot_sample_efficiency(
             logdir, env, algorithms,
             save_path=os.path.join(outdir, f"sample_efficiency_{env}.png"),
         )
         
-        # Plot 2: Learning curves (K=5)
-        plot_learning_curves(
-            logdir, env, algorithms, K=5,
-            save_path=os.path.join(outdir, f"learning_curves_{env}_K5.png"),
-        )
+        # Plot 2: Per-algorithm learning curves with all K values overlaid
+        for algo in algorithms:
+            plot_learning_curves_by_K(
+                logdir, env, algo,
+                save_path=os.path.join(outdir, f"learning_curves_{algo}_{env}.png"),
+            )
     
     print(f"\nAll plots saved to {outdir}/")
 
