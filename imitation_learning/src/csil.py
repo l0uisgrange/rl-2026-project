@@ -302,8 +302,8 @@ def save_log_csv(log, path, seed, K):
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["seed", "step", "eval_reward", "K", "critic_loss", "actor_loss"])
-        for row in zip(log["step"], log["eval_reward"], log["critic_loss"], log["actor_loss"]):
-            w.writerow([seed, *row, K])
+        for s, r, c, a in zip(log["step"], log["eval_reward"], log["critic_loss"], log["actor_loss"]):
+            w.writerow([seed, s, r, K, c, a])
 
 
 def save_agent(agent, path):
