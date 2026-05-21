@@ -1,6 +1,7 @@
 import argparse
 import csv
 import math
+import multiprocessing as mp
 import os
 import pathlib
 import random
@@ -346,7 +347,7 @@ def run_one(env_key, K, seed, soar=False, verbose=False):
         hidden_dim=cfg["hidden_dim"], batch_size=cfg["batch_size"],
         lr=cfg["lr"], alpha=cfg["alpha"],
         soar=soar, ensemble_size=4, soar_beta=1.0,
-        bc_steps=cfg["bc_steps"],
+        bc_steps=cfg["bc_steps"], scale_factor=cfg["scale_factor"],
         verbose=verbose,
     )
 
@@ -360,12 +361,24 @@ def run_one(env_key, K, seed, soar=False, verbose=False):
     print(f"  {(time.time()-t0)/60:.1f} min | final={final:.1f} | best={best:.1f}")
 
 
-def full_sweep():
-    for env_key in ENV_CONFIGS:
-        for K in K_VALUES:
-            for seed in SEEDS:
-                for soar in [False, True]:
-                    run_one(env_key, K, seed, soar=soar)
+def _run_one_star(args):
+    run_one(*args)
+
+
+def full_sweep(n_workers=None, env_filter=None, k_filter=None):
+    jobs = [
+        (env_key, K, seed, soar)
+        for env_key in ENV_CONFIGS
+        for K in K_VALUES
+        for seed in SEEDS
+        for soar in [False, True]
+        if (env_filter is None or env_key in env_filter)
+        and (k_filter is None or K in k_filter)
+    ]
+    n_workers = n_workers or min(mp.cpu_count(), len(jobs))
+    print(f"Running {len(jobs)} jobs on {n_workers} workers")
+    with mp.Pool(processes=n_workers, maxtasksperchild=1) as pool:
+        pool.map(_run_one_star, jobs)
 
 
 if __name__ == "__main__":
@@ -375,10 +388,13 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--soar", action="store_true")
     parser.add_argument("--full", action="store_true")
+    parser.add_argument("--workers",    type=int,  default=None)
+    parser.add_argument("--env-filter", nargs="+", default=None, metavar="ENV")
+    parser.add_argument("--k-filter",   nargs="+", type=int, default=None, metavar="K")
     args = parser.parse_args()
 
     if args.full:
-        full_sweep()
+        full_sweep(n_workers=args.workers, env_filter=args.env_filter, k_filter=args.k_filter)
     else:
         env_key = args.env.split("-")[0]
         run_one(env_key, args.K, args.seed, soar=args.soar, verbose=True)
