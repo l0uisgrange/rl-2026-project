@@ -54,7 +54,7 @@ class CSILAgent:
                  hidden_dim=256, lr=3e-4, gamma=0.99, tau=0.005, alpha=0.2,
                  batch_size=256, buffer_size=100_000,
                  soar=False, ensemble_size=4, soar_beta=1.0,
-                 bc_steps=5_000, scale_factor=1.0, grad_norm_sf=0.1):
+                 bc_steps=5_000, scale_factor=0.1, grad_norm_sf=0.1):
 
         self.discrete = discrete
         self.gamma, self.tau, self.alpha = gamma, tau, alpha
@@ -241,7 +241,7 @@ def train_csil(env_name, expert_path, seed=42, total_steps=50_000,
                eval_interval=1000, eval_episodes=5,
                hidden_dim=256, batch_size=256, lr=3e-4, alpha=0.2,
                soar=False, ensemble_size=4, soar_beta=1.0,
-               bc_steps=5_000, scale_factor=1.0, grad_norm_sf=0.1,
+               bc_steps=5_000, scale_factor=0.1, grad_norm_sf=0.1,
                verbose=True):
 
     np.random.seed(seed); torch.manual_seed(seed); random.seed(seed)
@@ -320,12 +320,12 @@ ENV_CONFIGS = {
     "CartPole": {
         "env": "CartPole-v1", "total_steps": 20_000, "hidden_dim": 128,
         "batch_size": 128, "eval_interval": 1000, "lr": 3e-4, "alpha": 0.2,
-        "bc_steps": 5_000,
+        "bc_steps": 5_000, "scale_factor": 0.1,
     },
     "Pendulum": {
-        "env": "Pendulum-v1", "total_steps": 50_000, "hidden_dim": 256,
+        "env": "Pendulum-v1", "total_steps": 30_000, "hidden_dim": 256,
         "batch_size": 256, "eval_interval": 1000, "lr": 3e-4, "alpha": 0.2,
-        "bc_steps": 20_000,
+        "bc_steps": 5_000, "scale_factor": 0.1,
     },
 }
 K_VALUES = [1, 3, 5, 10, 15]
