@@ -330,7 +330,17 @@ ENV_CONFIGS = {
 }
 K_VALUES = [1, 3, 5, 10, 15]
 SEEDS    = [42, 43, 44]
-_ROOT    = pathlib.Path(__file__).parent.parent
+
+# Find project root by walking up to find expert_data/.
+# Works whether csil.py lives in imitation_learning/ or imitation_learning/src/.
+def _find_root():
+    p = pathlib.Path(__file__).resolve().parent
+    for candidate in [p, p.parent, p.parent.parent]:
+        if (candidate / "expert_data").is_dir():
+            return candidate
+    raise FileNotFoundError("Could not locate expert_data/ relative to csil.py")
+
+_ROOT = _find_root()
 
 
 def run_one(env_key, K, seed, soar=False, verbose=False):
