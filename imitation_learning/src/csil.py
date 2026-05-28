@@ -170,10 +170,9 @@ class CSILAgent:
             all_s, all_a, all_ns, all_d, all_r = e_s, e_a, e_ns, e_d, r_e
 
         with torch.no_grad():
-            v_next  = self._soft_V(all_ns, use_target=True)
-            # FIX 6: Principled value clipping from reference
-            v_next  = v_next.clamp(-self.max_q, self.max_q)
-            target  = all_r + self.gamma * (1 - all_d) * v_next
+            v_next = self._soft_V(all_ns, use_target=True)
+            v_next = v_next.clamp(-self.max_q, self.max_q)
+            target = (all_r + self.gamma * (1 - all_d) * v_next).clamp(-self.max_q, self.max_q)
 
         qs = self.critic.forward(all_s, None if self.discrete else all_a)
         if self.discrete:
