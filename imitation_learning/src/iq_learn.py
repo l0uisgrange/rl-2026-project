@@ -16,7 +16,7 @@ import torch
 import torch.optim as optim
 import gymnasium as gym
 
-from src.sac_agent import QNetwork, GaussianPolicy, DiscretePolicy, ReplayBuffer
+from sac_agent import QNetwork, GaussianPolicy, DiscretePolicy, ReplayBuffer
 
 
 class ExpertDataset:
@@ -338,13 +338,13 @@ def train_iq_learn(
 
 if __name__ == "__main__":
     print("Loading CartPole expert data (K=5)...")
-    cp = ExpertDataset("expert_data/CartPole-v1_K5.npz", discrete=True)
+    cp = ExpertDataset("../expert_data/CartPole-v1_K5.npz", discrete=True)
     print(f"  states:        {cp.states.shape}")
     print(f"  actions:       {cp.actions.shape}  dtype={cp.actions.dtype}")
     print(f"  initial_states:{cp.initial_states.shape}")
 
     print("\nLoading Pendulum expert data (K=5)...")
-    pd = ExpertDataset("expert_data/Pendulum-v1_K5.npz", discrete=False)
+    pd = ExpertDataset("../expert_data/Pendulum-v1_K5.npz", discrete=False)
     print(f"  states:        {pd.states.shape}")
     print(f"  actions:       {pd.actions.shape}  dtype={pd.actions.dtype}")
 

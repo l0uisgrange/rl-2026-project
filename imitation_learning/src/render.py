@@ -2,7 +2,7 @@ import argparse
 import torch
 import gymnasium as gym
 from csil import CSILAgent, ENV_CONFIGS
-from iq_learn import IQLearnAgent
+from src.iq_learn import IQLearnAgent
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--env",  default="CartPole", choices=["CartPole", "Pendulum"])
