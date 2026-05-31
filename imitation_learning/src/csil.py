@@ -21,12 +21,6 @@ from sac_agent import GaussianPolicy, DiscretePolicy, ReplayBuffer
 from iq_learn import ExpertDataset, evaluate
 
 
-# ── Constants (from reference) ─────────────────────────────────────────────────
-# Principled reward bound: minimum policy variance → maximum log-probability
-MIN_VAR = 1e-5
-MAX_REWARD = -0.5 * np.log(MIN_VAR) + np.log(2.0)   # ≈ 6.45
-
-
 # ── Networks ──────────────────────────────────────────────────────────────────
 
 class EnsembleQ(nn.Module):
@@ -57,28 +51,18 @@ class EnsembleQ(nn.Module):
 
 class CSILAgent:
     def __init__(self, state_dim, action_dim, discrete, action_low, action_high,
-                 hidden_dim=256, lr=3e-4, gamma=0.99, tau=0.005,
-                 # FIX 2: Separate the two alphas
-                 ent_coef=0.01,          # SAC entropy coefficient (soft V & actor)
-                 csil_alpha=None,        # CSIL reward temperature (defaults to 1/action_dim)
+                 hidden_dim=256, lr=3e-4, gamma=0.99, tau=0.005, alpha=0.2,
                  batch_size=256, buffer_size=100_000,
                  soar=False, ensemble_size=4, soar_beta=1.0,
-                 bc_steps=5_000, scale_factor=1.0,
-                 # FIX 5: Default grad_norm_sf to 1.0, matching reference
-                 grad_norm_sf=1.0):
+                 bc_steps=5_000, scale_factor=1.0, grad_norm_sf=0.1):
 
         self.discrete = discrete
-        self.gamma, self.tau = gamma, tau
-        self.ent_coef = ent_coef                                    # SAC entropy weight
-        self.csil_alpha = csil_alpha if csil_alpha is not None \
-            else (1.0 / action_dim if not discrete else 0.2)        # CSIL reward weight
+        self.gamma, self.tau, self.alpha = gamma, tau, alpha
         self.batch_size = batch_size
         self.soar, self.soar_beta = soar, soar_beta
         self.bc_steps = bc_steps
         self.scale_factor = scale_factor
         self.grad_norm_sf = grad_norm_sf
-        # FIX 6: Principled value clip
-        self.max_q = MAX_REWARD / (1.0 - gamma)
 
         L = ensemble_size if soar else 2
         self.critic        = EnsembleQ(state_dim, action_dim, hidden_dim, discrete, L)
@@ -97,8 +81,6 @@ class CSILAgent:
         if not discrete and action_low is not None:
             self._lo = torch.FloatTensor(action_low)
             self._hi = torch.FloatTensor(action_high)
-
-    # ── helpers ────────────────────────────────────────────────────────────────
 
     def _scale(self, a_unit):
         return self._lo + (a_unit + 1.0) * 0.5 * (self._hi - self._lo)
@@ -123,7 +105,6 @@ class CSILAgent:
         return lp.sum(-1, keepdim=True)
 
     def _shaped_reward(self, states, actions_env):
-        """Coherent reward: csil_alpha * (log BC - log prior)."""
         with torch.no_grad():
             if self.discrete:
                 lp_bc    = self.bc_policy.get_action_probs(states)[1].gather(1, actions_env.long().view(-1,1))
@@ -134,26 +115,20 @@ class CSILAgent:
                 a_unit = ((actions_env - self._lo) / (0.5 * (self._hi - self._lo)) - 1.0)
                 lp_bc    = self._bc_logp(states, a_unit)
                 lp_prior = self._prior_logp(a_unit)
-        # FIX 2: Use csil_alpha for the reward, NOT the SAC ent_coef
-        return self.csil_alpha * (lp_bc - lp_prior)
+        return self.alpha * (lp_bc - lp_prior)
 
     def _soft_V(self, states, use_target=True):
-        """Soft value: V(s) = Q(s,a) - ent_coef * (log π - log π_BC)."""
         critic = self.critic_target if use_target else self.critic
         if self.discrete:
             probs, log_probs = self.actor.get_action_probs(states)
             bc_lp = self.bc_policy.get_action_probs(states)[1].detach()
             q = torch.stack(critic.forward(states), 0).min(0).values
-            # FIX 2: Use ent_coef (not csil_alpha) for the entropy term
-            return (probs * (q - self.ent_coef * (log_probs - bc_lp))).sum(-1, keepdim=True)
+            return (probs * (q - self.alpha * (log_probs - bc_lp))).sum(-1, keepdim=True)
         else:
             a_unit, log_probs = self.actor.sample(states)
             bc_lp = self._bc_logp(states, a_unit.detach()).detach()
             q = torch.stack(critic.forward(states, self._scale(a_unit)), 0).min(0).values
-            # FIX 2: Use ent_coef here
-            return q - self.ent_coef * (log_probs - bc_lp)
-
-    # ── losses ─────────────────────────────────────────────────────────────────
+            return q - self.alpha * (log_probs - bc_lp)
 
     def _critic_loss(self, e_s, e_a, e_ns, e_d, o_s=None, o_a=None, o_ns=None, o_d=None):
         r_e = self._shaped_reward(e_s, e_a)
@@ -170,26 +145,22 @@ class CSILAgent:
             all_s, all_a, all_ns, all_d, all_r = e_s, e_a, e_ns, e_d, r_e
 
         with torch.no_grad():
-            v_next = self._soft_V(all_ns, use_target=True)
-            v_next = v_next.clamp(-self.max_q, self.max_q)
-            target = (all_r + self.gamma * (1 - all_d) * v_next).clamp(-self.max_q, self.max_q)
+            v_next  = self._soft_V(all_ns, use_target=True).clamp(-1000, 1000)
+            target  = (all_r + self.gamma * (1 - all_d) * v_next).clamp(-1000, 1000)
 
         qs = self.critic.forward(all_s, None if self.discrete else all_a)
         if self.discrete:
             qs = [q.gather(1, all_a.long().view(-1,1)) for q in qs]
         bellman = sum(((q - target)**2).mean() for q in qs) / len(qs)
 
-        # KL regularizer on online data (or expert if no online yet)
         r_reg = r_o if r_o is not None else r_e
-        safe_r = r_reg.clamp(min=-5.0)
-        kl_est = (torch.exp(-safe_r) - 1.0 + r_reg).mean()
+        kl_est = (torch.exp(-r_reg.clamp(min=-5)) - 1 + r_reg).mean()
 
-        # FIX 4: Grad norm penalty on EXPERT data only, using min across critics
         grad_loss = torch.tensor(0.0)
         if not self.discrete and self.grad_norm_sf > 0:
-            a_req = e_a.detach().requires_grad_(True)
-            q_min = torch.stack(self.critic.forward(e_s, a_req), 0).min(0).values.sum()
-            grads = torch.autograd.grad(q_min, a_req, create_graph=True)[0]
+            a_req = all_a.detach().requires_grad_(True)
+            q_sum = torch.stack(self.critic.forward(all_s, a_req), 0).mean(0).sum()
+            grads = torch.autograd.grad(q_sum, a_req, create_graph=True)[0]
             grad_loss = (grads**2).sum(-1).mean().sqrt()
 
         return bellman - r_e.mean() + self.scale_factor * kl_est + self.grad_norm_sf * grad_loss
@@ -203,8 +174,7 @@ class CSILAgent:
                 q = mean_q + self.soar_beta * std_q
             else:
                 q = torch.stack(self.critic.forward(states), 0).min(0).values
-            # FIX 2: Use ent_coef for the entropy term in the actor loss
-            return (probs * (self.ent_coef * (log_probs - bc_lp) - q)).sum(-1).mean()
+            return (probs * (self.alpha * (log_probs - bc_lp) - q)).sum(-1).mean()
         else:
             a_unit, log_probs = self.actor.sample(states)
             bc_lp = self._bc_logp(states, a_unit.detach()).detach()
@@ -213,10 +183,7 @@ class CSILAgent:
                 q = mean_q + self.soar_beta * std_q
             else:
                 q = torch.stack(self.critic.forward(states, self._scale(a_unit)), 0).min(0).values
-            # FIX 2: Use ent_coef
-            return (self.ent_coef * (log_probs - bc_lp) - q).mean()
-
-    # ── pretraining ────────────────────────────────────────────────────────────
+            return (self.alpha * (log_probs - bc_lp) - q).mean()
 
     def pretrain_bc(self, expert, n_steps=None):
         n_steps = n_steps or self.bc_steps
@@ -230,22 +197,6 @@ class CSILAgent:
             self.opt_bc.zero_grad(); loss.backward(); self.opt_bc.step()
         self.actor.load_state_dict(self.bc_policy.state_dict())
 
-    # FIX 7: Add critic pretraining (warm-start the Bellman backup)
-    def pretrain_critic(self, expert, n_steps=5000):
-        """Pretrain critic using expert data and the learned shaped reward."""
-        for _ in range(n_steps):
-            e_s, e_a, e_ns, e_d = expert.sample(self.batch_size)
-            closs = self._critic_loss(e_s, e_a, e_ns, e_d)
-            self.opt_critic.zero_grad()
-            closs.backward()
-            nn.utils.clip_grad_norm_(self.critic.parameters(), 1.0)
-            self.opt_critic.step()
-            # Sync target
-            for p, pt in zip(self.critic.parameters(), self.critic_target.parameters()):
-                pt.data.copy_(self.tau * p.data + (1 - self.tau) * pt.data)
-
-    # ── update ─────────────────────────────────────────────────────────────────
-
     def update(self, expert):
         e_s, e_a, e_ns, e_d = expert.sample(self.batch_size)
         has_online = len(self.replay) >= self.batch_size
@@ -254,8 +205,7 @@ class CSILAgent:
             o_s, o_a_raw, _, o_ns, o_d = self.replay.sample(self.batch_size)
             o_a = o_a_raw.long().view(-1,1) if self.discrete else o_a_raw
             closs = self._critic_loss(e_s, e_a, e_ns, e_d, o_s, o_a, o_ns, o_d)
-            # FIX 3: Actor loss on BOTH expert and online observations
-            actor_states = torch.cat([e_s, o_s])
+            actor_states = o_s
         else:
             closs = self._critic_loss(e_s, e_a, e_ns, e_d)
             actor_states = e_s
@@ -289,11 +239,9 @@ class CSILAgent:
 
 def train_csil(env_name, expert_path, seed=42, total_steps=50_000,
                eval_interval=1000, eval_episodes=5,
-               hidden_dim=256, batch_size=256, lr=3e-4,
-               ent_coef=0.01, csil_alpha=None,
+               hidden_dim=256, batch_size=256, lr=3e-4, alpha=0.2,
                soar=False, ensemble_size=4, soar_beta=1.0,
-               bc_steps=5_000, critic_pretrain_steps=5_000,
-               scale_factor=1.0, grad_norm_sf=1.0,
+               bc_steps=5_000, scale_factor=1.0, grad_norm_sf=0.1,
                verbose=True):
 
     np.random.seed(seed); torch.manual_seed(seed); random.seed(seed)
@@ -309,27 +257,18 @@ def train_csil(env_name, expert_path, seed=42, total_steps=50_000,
         state_dim, action_dim, discrete,
         action_low  = None if discrete else env.action_space.low,
         action_high = None if discrete else env.action_space.high,
-        hidden_dim=hidden_dim, lr=lr,
-        ent_coef=ent_coef, csil_alpha=csil_alpha,
+        hidden_dim=hidden_dim, lr=lr, alpha=alpha,
         batch_size=batch_size,
         soar=soar, ensemble_size=ensemble_size, soar_beta=soar_beta,
         bc_steps=bc_steps, scale_factor=scale_factor, grad_norm_sf=grad_norm_sf,
     )
 
     algo = "CSIL+SOAR" if soar else "CSIL"
-
-    # Phase 1: BC pre-training
     if verbose:
         print(f"[{algo}] BC pre-training ({bc_steps} steps)…")
     agent.pretrain_bc(expert)
     if verbose:
         print(f"[{algo}] BC reward = {evaluate(agent, eval_env, eval_episodes):.2f}")
-
-    # FIX 7: Phase 2: Critic pre-training
-    if critic_pretrain_steps > 0:
-        if verbose:
-            print(f"[{algo}] Critic pre-training ({critic_pretrain_steps} steps)…")
-        agent.pretrain_critic(expert, n_steps=critic_pretrain_steps)
 
     log = {"step": [], "eval_reward": [], "critic_loss": [], "actor_loss": []}
     state, _ = env.reset(seed=seed)
@@ -377,21 +316,18 @@ def save_agent(agent, path):
 
 # ── Experiment sweep ──────────────────────────────────────────────────────────
 
-# FIX 1: Include all necessary keys, with reference-aligned defaults
 ENV_CONFIGS = {
     "CartPole": {
         "env": "CartPole-v1", "total_steps": 20_000, "hidden_dim": 128,
-        "batch_size": 128, "eval_interval": 1000, "lr": 3e-4,
-        "ent_coef": 0.2, "csil_alpha": None,   # csil_alpha=None → auto 1/action_dim
-        "bc_steps": 5_000, "critic_pretrain_steps": 2_000,
-        "scale_factor": 1.0, "grad_norm_sf": 0.0,  # no grad norm for discrete
+        "batch_size": 128, "eval_interval": 1000, "lr": 3e-4, "alpha": 0.2,
+        "bc_steps": 5_000,
+        "scale_factor": 1.0,
     },
     "Pendulum": {
         "env": "Pendulum-v1", "total_steps": 50_000, "hidden_dim": 256,
-        "batch_size": 256, "eval_interval": 1000, "lr": 3e-4,
-        "ent_coef": 0.01, "csil_alpha": 1.0,   # 1.0 / action_dim(=1)
-        "bc_steps": 25_000, "critic_pretrain_steps": 5_000,
-        "scale_factor": 1.0, "grad_norm_sf": 1.0,
+        "batch_size": 256, "eval_interval": 1000, "lr": 3e-4, "alpha": 0.2,
+        "bc_steps": 20_000,
+        "scale_factor": 1.0,
     },
 }
 K_VALUES = [1, 3, 5, 10, 15]
@@ -411,12 +347,9 @@ def run_one(env_key, K, seed, soar=False, verbose=False):
         seed=seed, total_steps=cfg["total_steps"],
         eval_interval=cfg["eval_interval"],
         hidden_dim=cfg["hidden_dim"], batch_size=cfg["batch_size"],
-        lr=cfg["lr"],
-        ent_coef=cfg["ent_coef"], csil_alpha=cfg["csil_alpha"],
+        lr=cfg["lr"], alpha=cfg["alpha"],
         soar=soar, ensemble_size=4, soar_beta=1.0,
-        bc_steps=cfg["bc_steps"],
-        critic_pretrain_steps=cfg["critic_pretrain_steps"],
-        scale_factor=cfg["scale_factor"], grad_norm_sf=cfg["grad_norm_sf"],
+        bc_steps=cfg["bc_steps"], scale_factor=cfg["scale_factor"],
         verbose=verbose,
     )
 
