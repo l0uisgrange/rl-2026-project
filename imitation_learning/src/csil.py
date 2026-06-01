@@ -331,8 +331,6 @@ ENV_CONFIGS = {
 K_VALUES = [1, 3, 5, 10, 15]
 SEEDS    = [42, 43, 44]
 
-# Find project root by walking up to find expert_data/.
-# Works whether csil.py lives in imitation_learning/ or imitation_learning/src/.
 def _find_root():
     p = pathlib.Path(__file__).resolve().parent
     for candidate in [p, p.parent, p.parent.parent]:
