@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 import sys
+
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
@@ -21,14 +22,14 @@ from sac_agent import GaussianPolicy, DiscretePolicy, ReplayBuffer
 from iq_learn import ExpertDataset, evaluate
 
 
-# ── Networks ──────────────────────────────────────────────────────────────────
+# DNN
 
 class EnsembleQ(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim, discrete, L):
         super().__init__()
         self.discrete = discrete
         self.L = L
-        in_dim  = state_dim if discrete else state_dim + action_dim
+        in_dim = state_dim if discrete else state_dim + action_dim
         out_dim = action_dim if discrete else 1
         self.nets = nn.ModuleList([
             nn.Sequential(
@@ -65,18 +66,18 @@ class CSILAgent:
         self.grad_norm_sf = grad_norm_sf
 
         L = ensemble_size if soar else 2
-        self.critic        = EnsembleQ(state_dim, action_dim, hidden_dim, discrete, L)
+        self.critic = EnsembleQ(state_dim, action_dim, hidden_dim, discrete, L)
         self.critic_target = EnsembleQ(state_dim, action_dim, hidden_dim, discrete, L)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         Policy = DiscretePolicy if discrete else GaussianPolicy
-        self.actor     = Policy(state_dim, action_dim, hidden_dim)
+        self.actor = Policy(state_dim, action_dim, hidden_dim)
         self.bc_policy = Policy(state_dim, action_dim, hidden_dim)
 
-        self.opt_critic = optim.Adam(self.critic.parameters(),   lr=lr)
-        self.opt_actor  = optim.Adam(self.actor.parameters(),    lr=lr)
-        self.opt_bc     = optim.Adam(self.bc_policy.parameters(), lr=lr)
-        self.replay     = ReplayBuffer(buffer_size)
+        self.opt_critic = optim.Adam(self.critic.parameters(), lr=lr)
+        self.opt_actor = optim.Adam(self.actor.parameters(), lr=lr)
+        self.opt_bc = optim.Adam(self.bc_policy.parameters(), lr=lr)
+        self.replay = ReplayBuffer(buffer_size)
 
         if not discrete and action_low is not None:
             self._lo = torch.FloatTensor(action_low)
@@ -107,13 +108,13 @@ class CSILAgent:
     def _shaped_reward(self, states, actions_env):
         with torch.no_grad():
             if self.discrete:
-                lp_bc    = self.bc_policy.get_action_probs(states)[1].gather(1, actions_env.long().view(-1,1))
+                lp_bc = self.bc_policy.get_action_probs(states)[1].gather(1, actions_env.long().view(-1, 1))
                 lp_prior = torch.full((states.shape[0], 1),
                                       -math.log(self.actor.net[-1].out_features),
                                       device=states.device)
             else:
                 a_unit = ((actions_env - self._lo) / (0.5 * (self._hi - self._lo)) - 1.0)
-                lp_bc    = self._bc_logp(states, a_unit)
+                lp_bc = self._bc_logp(states, a_unit)
                 lp_prior = self._prior_logp(a_unit)
         return self.alpha * (lp_bc - lp_prior)
 
@@ -134,24 +135,24 @@ class CSILAgent:
         r_e = self._shaped_reward(e_s, e_a)
 
         if o_s is not None:
-            r_o   = self._shaped_reward(o_s, o_a)
-            all_s  = torch.cat([e_s, o_s])
-            all_a  = torch.cat([e_a, o_a])
+            r_o = self._shaped_reward(o_s, o_a)
+            all_s = torch.cat([e_s, o_s])
+            all_a = torch.cat([e_a, o_a])
             all_ns = torch.cat([e_ns, o_ns])
-            all_d  = torch.cat([e_d, o_d])
-            all_r  = torch.cat([r_e, r_o])
+            all_d = torch.cat([e_d, o_d])
+            all_r = torch.cat([r_e, r_o])
         else:
             r_o = None
             all_s, all_a, all_ns, all_d, all_r = e_s, e_a, e_ns, e_d, r_e
 
         with torch.no_grad():
-            v_next  = self._soft_V(all_ns, use_target=True).clamp(-1000, 1000)
-            target  = (all_r + self.gamma * (1 - all_d) * v_next).clamp(-1000, 1000)
+            v_next = self._soft_V(all_ns, use_target=True).clamp(-1000, 1000)
+            target = (all_r + self.gamma * (1 - all_d) * v_next).clamp(-1000, 1000)
 
         qs = self.critic.forward(all_s, None if self.discrete else all_a)
         if self.discrete:
-            qs = [q.gather(1, all_a.long().view(-1,1)) for q in qs]
-        bellman = sum(((q - target)**2).mean() for q in qs) / len(qs)
+            qs = [q.gather(1, all_a.long().view(-1, 1)) for q in qs]
+        bellman = sum(((q - target) ** 2).mean() for q in qs) / len(qs)
 
         r_reg = r_o if r_o is not None else r_e
         kl_est = (torch.exp(-r_reg.clamp(min=-5)) - 1 + r_reg).mean()
@@ -161,7 +162,7 @@ class CSILAgent:
             a_req = all_a.detach().requires_grad_(True)
             q_sum = torch.stack(self.critic.forward(all_s, a_req), 0).mean(0).sum()
             grads = torch.autograd.grad(q_sum, a_req, create_graph=True)[0]
-            grad_loss = (grads**2).sum(-1).mean().sqrt()
+            grad_loss = (grads ** 2).sum(-1).mean().sqrt()
 
         return bellman - r_e.mean() + self.scale_factor * kl_est + self.grad_norm_sf * grad_loss
 
@@ -190,11 +191,13 @@ class CSILAgent:
         for _ in range(n_steps):
             e_s, e_a, _, _ = expert.sample(self.batch_size)
             if self.discrete:
-                loss = -self.bc_policy.get_action_probs(e_s)[1].gather(1, e_a.long().view(-1,1)).mean()
+                loss = -self.bc_policy.get_action_probs(e_s)[1].gather(1, e_a.long().view(-1, 1)).mean()
             else:
-                a_unit = ((e_a - self._lo) / (0.5 * (self._hi - self._lo)) - 1.0).clamp(-1+1e-6, 1-1e-6)
+                a_unit = ((e_a - self._lo) / (0.5 * (self._hi - self._lo)) - 1.0).clamp(-1 + 1e-6, 1 - 1e-6)
                 loss = -self._bc_logp(e_s, a_unit).mean()
-            self.opt_bc.zero_grad(); loss.backward(); self.opt_bc.step()
+            self.opt_bc.zero_grad();
+            loss.backward();
+            self.opt_bc.step()
         self.actor.load_state_dict(self.bc_policy.state_dict())
 
     def update(self, expert):
@@ -203,7 +206,7 @@ class CSILAgent:
 
         if has_online:
             o_s, o_a_raw, _, o_ns, o_d = self.replay.sample(self.batch_size)
-            o_a = o_a_raw.long().view(-1,1) if self.discrete else o_a_raw
+            o_a = o_a_raw.long().view(-1, 1) if self.discrete else o_a_raw
             closs = self._critic_loss(e_s, e_a, e_ns, e_d, o_s, o_a, o_ns, o_d)
             actor_states = o_s
         else:
@@ -235,7 +238,7 @@ class CSILAgent:
         return self._lo.numpy() + (a.squeeze(0).numpy() + 1.0) * 0.5 * (self._hi.numpy() - self._lo.numpy())
 
 
-# ── Training loop ─────────────────────────────────────────────────────────────
+# training
 
 def train_csil(env_name, expert_path, seed=42, total_steps=50_000,
                eval_interval=1000, eval_episodes=5,
@@ -243,20 +246,21 @@ def train_csil(env_name, expert_path, seed=42, total_steps=50_000,
                soar=False, ensemble_size=4, soar_beta=1.0,
                bc_steps=5_000, scale_factor=1.0, grad_norm_sf=0.1,
                verbose=True):
+    np.random.seed(seed);
+    torch.manual_seed(seed);
+    random.seed(seed)
 
-    np.random.seed(seed); torch.manual_seed(seed); random.seed(seed)
-
-    env      = gym.make(env_name)
+    env = gym.make(env_name)
     eval_env = gym.make(env_name)
     discrete = isinstance(env.action_space, gym.spaces.Discrete)
-    state_dim  = env.observation_space.shape[0]
+    state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n if discrete else env.action_space.shape[0]
 
     expert = ExpertDataset(expert_path, discrete=discrete)
-    agent  = CSILAgent(
+    agent = CSILAgent(
         state_dim, action_dim, discrete,
-        action_low  = None if discrete else env.action_space.low,
-        action_high = None if discrete else env.action_space.high,
+        action_low=None if discrete else env.action_space.low,
+        action_high=None if discrete else env.action_space.high,
         hidden_dim=hidden_dim, lr=lr, alpha=alpha,
         batch_size=batch_size,
         soar=soar, ensemble_size=ensemble_size, soar_beta=soar_beta,
@@ -292,11 +296,12 @@ def train_csil(env_name, expert_path, seed=42, total_steps=50_000,
                 print(f"[{algo}] step {step:6d}  eval={r:7.2f}  "
                       f"crit={m['critic_loss']:+.4f}  actor={m['actor_loss']:+.4f}")
 
-    env.close(); eval_env.close()
+    env.close();
+    eval_env.close()
     return agent, log
 
 
-# ── I/O ───────────────────────────────────────────────────────────────────────
+# i/o
 
 def save_log_csv(log, path, seed, K):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -310,11 +315,11 @@ def save_log_csv(log, path, seed, K):
 def save_agent(agent, path):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     torch.save({"critic": agent.critic.state_dict(),
-                "actor":  agent.actor.state_dict(),
-                "bc":     agent.bc_policy.state_dict()}, path)
+                "actor": agent.actor.state_dict(),
+                "bc": agent.bc_policy.state_dict()}, path)
 
 
-# ── Experiment sweep ──────────────────────────────────────────────────────────
+# sweep
 
 ENV_CONFIGS = {
     "CartPole": {
@@ -331,12 +336,12 @@ ENV_CONFIGS = {
     },
 }
 K_VALUES = [1, 3, 5, 10, 15]
-SEEDS    = [42, 43, 44]
-_ROOT    = pathlib.Path(__file__).parent.parent
+SEEDS = [42, 43, 44]
+_ROOT = pathlib.Path(__file__).parent.parent
 
 
 def run_one(env_key, K, seed, soar=False, verbose=False):
-    cfg  = ENV_CONFIGS[env_key]
+    cfg = ENV_CONFIGS[env_key]
     algo = "csilsoar" if soar else "csil"
     expert_path = str(_ROOT / f"expert_data/{cfg['env']}_K{K}.npz")
     print(f"\n[{algo.upper()} | {env_key} | K={K} | seed={seed}]")
@@ -353,14 +358,14 @@ def run_one(env_key, K, seed, soar=False, verbose=False):
         verbose=verbose,
     )
 
-    csv_path   = str(_ROOT / f"logs/{algo}_{env_key}_K{K}_seed{seed}.csv")
+    csv_path = str(_ROOT / f"logs/{algo}_{env_key}_K{K}_seed{seed}.csv")
     model_path = str(_ROOT / f"models/{algo}_{env_key}_K{K}_seed{seed}.pt")
     save_log_csv(log, csv_path, seed, K)
     save_agent(agent, model_path)
 
     final = log["eval_reward"][-1] if log["eval_reward"] else float("nan")
-    best  = max(log["eval_reward"]) if log["eval_reward"] else float("nan")
-    print(f"  {(time.time()-t0)/60:.1f} min | final={final:.1f} | best={best:.1f}")
+    best = max(log["eval_reward"]) if log["eval_reward"] else float("nan")
+    print(f"  {(time.time() - t0) / 60:.1f} min | final={final:.1f} | best={best:.1f}")
 
 
 def _run_one_star(args):
@@ -375,24 +380,24 @@ def full_sweep(n_workers=None, env_filter=None, k_filter=None):
         for seed in SEEDS
         for soar in [False, True]
         if (env_filter is None or env_key in env_filter)
-        and (k_filter is None or K in k_filter)
+           and (k_filter is None or K in k_filter)
     ]
     n_workers = n_workers or min(mp.cpu_count(), len(jobs))
-    print(f"Running {len(jobs)} jobs on {n_workers} workers")
+    print(f"running {len(jobs)} jobs on {n_workers} workers")
     with mp.Pool(processes=n_workers, maxtasksperchild=1) as pool:
         pool.map(_run_one_star, jobs)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env",  default="CartPole-v1")
-    parser.add_argument("--K",    type=int, default=5)
+    parser.add_argument("--env", default="CartPole-v1")
+    parser.add_argument("--K", type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--soar", action="store_true")
     parser.add_argument("--full", action="store_true")
-    parser.add_argument("--workers",    type=int,  default=None)
+    parser.add_argument("--workers", type=int, default=None)
     parser.add_argument("--env-filter", nargs="+", default=None, metavar="ENV")
-    parser.add_argument("--k-filter",   nargs="+", type=int, default=None, metavar="K")
+    parser.add_argument("--k-filter", nargs="+", type=int, default=None, metavar="K")
     args = parser.parse_args()
 
     if args.full:
