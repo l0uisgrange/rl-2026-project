@@ -6,7 +6,7 @@ Repository for the EE-556 Reinforcement learning course at EPFL. The evaluation 
 |:--------------------------------------------------------------------------------------------------------|:---------------|
 | [Notebook 1](https://github.com/l0uisgrange/rl-2026-project/blob/main/notebook1_2026/Assignment.ipynb)  | 98%[^1]        |  
 | [Notebook 2](https://github.com/l0uisgrange/rl-2026-project/blob/main/notebook2_2026/Assignment.ipynb)  | 92%[^2]        | 
-| [Notebook 3](https://github.com/l0uisgrange/rl-2026-project/blob/main/notebook3_2026/Assignment.ipynb)  |                | 
+| [Notebook 3](https://github.com/l0uisgrange/rl-2026-project/blob/main/notebook3_2026/Assignment.ipynb)  | 78%            | 
 | [Project](https://github.com/l0uisgrange/rl-2026-project/blob/main/imitation_learning/README.md)        |                |
 
 [^1]: Comment received — Q2: Need to mention when epsilon goes to 0
